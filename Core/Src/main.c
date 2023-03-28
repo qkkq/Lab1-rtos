@@ -22,8 +22,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+//Initialization of global varaibles neede for code to work.
+//Default blinking frequency
 uint16_t blink_freq = 10;
+//default period of time - later automatically calculated basing on freq
 uint16_t period = 50;
+//varaible of button state, changed to tru only by IRQ
 uint8_t button_pressed = 0;
 /* USER CODE END Includes */
 
@@ -46,6 +51,7 @@ UART_HandleTypeDef huart2;
 
 osThreadId blink01Handle;
 osThreadId blink02Handle;
+osThreadId GPIO_stateHandle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -56,6 +62,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 void StartBlink01(void const * argument);
 void StartBlink02(void const * argument);
+void GPIO_state_check(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -123,6 +130,10 @@ int main(void)
   /* definition and creation of blink02 */
   osThreadDef(blink02, StartBlink02, osPriorityBelowNormal, 0, 128);
   blink02Handle = osThreadCreate(osThread(blink02), NULL);
+
+  /* definition and creation of GPIO_state */
+  osThreadDef(GPIO_state, GPIO_state_check, osPriorityIdle, 0, 128);
+  GPIO_stateHandle = osThreadCreate(osThread(GPIO_state), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -254,6 +265,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PC6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
@@ -263,6 +280,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+	//if callback was called by gpio pin corresponding to button varaible state will change
   if(GPIO_Pin == B1_Pin) {
 	  button_pressed = 1;
 
@@ -283,8 +301,11 @@ void StartBlink01(void const * argument)
   /* Infinite loop */
   for(;;)
   {
+	  // calculate period in loop to adjust when varaible blink_freq is changed.
 	  period = 1000/(blink_freq*2);
+	  //toggle LED
 	  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+	  // delay for rtos - when to call function next time. It does not block running of uC.
 	  osDelay(period);
   }
   osThreadTerminate(NULL);
@@ -305,17 +326,43 @@ void StartBlink02(void const * argument)
   for(;;)
   {
 	  //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-
+// if default freq and button pressed we change frequency
 	  if(button_pressed && blink_freq == 10)
 	 		  blink_freq = 20;
 	 	  else if( button_pressed)
+	 	//if button pressed but value was different than default we change to default.
 	 		  blink_freq= 10;
-
+//reset button state
 	  button_pressed = 0;
+	  //run once per second.
 		  osDelay(1000);
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartBlink02 */
+}
+
+/* USER CODE BEGIN Header_GPIO_state_check */
+/**
+* @brief Function implementing the GPIO_state thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_GPIO_state_check */
+void GPIO_state_check(void const * argument)
+{
+  /* USER CODE BEGIN GPIO_state_check */
+  /* Infinite loop */
+  for(;;)
+  {
+	  //check for inverted state of gpio ( so low state goes into)
+	  if(!HAL_GPIO_ReadPin (GPIOC, GPIO_PIN_6))
+	        {
+	            // Set The LED OFF!
+	            HAL_GPIO_WritePin(LD2_GPIO_Port,LD2_Pin, GPIO_PIN_RESET);
+	        }
+    osDelay(100);
+  }
+  /* USER CODE END GPIO_state_check */
 }
 
 /**
